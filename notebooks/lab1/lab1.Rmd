@@ -1,0 +1,140 @@
+---
+title: "lab1"
+output:
+  html_document:
+    df_print: paged
+---
+
+#### Consider a loaded die that has a 10% chance of rolling a 1-5 and a 50% chance of rolling a 6.
+
+Define a vector of roll outcome probabilities.
+```{r}
+probabilityVector <- c(0.1, 0.1, 0.1, 0.1, 0.1, 0.5)
+```
+
+Define a function to find the mean outcome, given a vector of outcome probabilities.
+```{r}
+loadedMean <- function(probabilityVector) {
+  return(sum(probabilityVector * c(1,2,3,4,5,6)))
+}
+```
+
+Define a function to find the standard deviation of outcomes, given a vector of outcome probabilities.
+```{r}
+loadedVariance <- function(probabilityVector) {
+  return(sum(probabilityVector * (c(1,2,3,4,5,6) - loadedMean(probabilityVector))^2))
+}
+```
+
+Given the above probabilityVector, the **expected mean and variance** of roll outcomes for the loaded die are:  
+```{r}
+expectedMean = loadedMean(probabilityVector)
+expectedVariance = loadedVariance(probabilityVector)
+```
+
+* Mean: `r expectedMean`  
+* Variance: `r expectedVariance` 
+
+<br/>
+
+Define a function that simulates a single role of a die, given a role outcome probability vector.
+```{r}
+rollDieOnce <- function(probabilityVector) {
+  probabilityIntervals <- vector()
+  for (i in seq(1:length(probabilityVector))) {
+    probabilityIntervals <- c(probabilityIntervals, sum(probabilityVector[1:i]))
+  }
+  return(length(probabilityVector) - sum(probabilityIntervals >= runif(1)) + 1)
+}
+```
+
+
+Define a function that simulates numberRolls number of rolls, given a role outcome probability vector.
+```{r}
+rollDie <- function(probabilityVector, numberRolls) {
+  rolls <- vector()
+  for (i in seq(numberRolls)) {
+    rolls <- c(rolls, rollDieOnce(probabilityVector))
+  }
+  return(rolls)
+}
+```
+
+
+**Generate a vector** containing 10,000 sample rolls of the loaded die.
+```{r}
+sampleRolls <- rollDie(probabilityVector, 10000)
+head(sampleRolls)
+```
+* The length of sampleRolls is `r length(sampleRolls)`
+
+<br/>
+
+Verify the observed roll outcome probabilities are similar to what is expected, based in the input probability vector.
+```{r}
+for (i in sort(unique(sampleRolls))) {
+  print(paste0("P(", i, ")", " = ", sum(sampleRolls == i) / length(sampleRolls)))
+}
+```
+
+Due to the unequal distribution of roll outcome probabilities, **the observed sample roll outcomes do not resemble a uniform distribution**.
+```{r}
+hist(sampleRolls, breaks = seq(0,6))
+```
+
+Determine the mean and variance for each of a vector of increasing sample rolls.
+```{r}
+trialSizes <- c(5, 10, 15, 20, 25, 30, 40, 50, 100, 200, 300, 400, 500, 1000, 2000, 3000, 4000, 5000, 10000, 20000, 30000, 100000)
+means <- vector(mode = "double", length=length(trialSizes))
+variances <- vector(mode = "double", length=length(trialSizes))
+
+for (i in 1:length(trialSizes)) {
+  rolls <- rollDie(probabilityVector, trialSizes[i])
+  means[i] = mean(rolls)
+  variances[i] = var(rolls)
+}
+```
+
+Plot the observed means, as determined above.
+```{r}
+x <- log10(trialSizes)
+plot(x, means, ylim = c(min(means) - 0.5, max(means) + 0.5))
+lines(x, rep(expectedMean, length(trialSizes)))
+```
+
+Plot the observed variances, as determined above.
+```{r}
+plot(x, variances, ylim = c(min(variances) - 0.5, max(variances) + 0.5))
+lines(x, rep(expectedVariance, length(trialSizes)))
+```
+
+By the law of large numbers, the observed **mean and variance converge** at the respective expected values (within a 1% variance tolerance), given the following number of rolls:
+
+Define a function to find the variance of a sample around an expected mean.
+```{r}
+varFromExpectedMean <- function(v, expectedMean) {
+  variance = 0
+  for (i in v) {
+    variance = variance + (i - expectedMean)**2 / length(v)
+  }
+  return(variance)
+}
+```
+
+
+Define a function to find the index of the first range with a variance below a specified threshold, given a vector and interval size.
+```{r}
+convergenceIndex <- function(v, minVariance, intervalSize, expectedMean) {
+  for (i in seq(1:(length(v) - intervalSize))) {
+    if (varFromExpectedMean(v[i:(i + intervalSize)], expectedMean) < minVariance) {
+      return(i)
+    }
+  }
+  return(NULL)
+}
+```
+
+
+* Mean convergence: `r trialSizes[convergenceIndex(means, 0.01, 5, expectedMean)]` rolls
+* Variance convergence: `r trialSizes[convergenceIndex(variances, 0.01, 5, expectedVariance)]` rolls
+
