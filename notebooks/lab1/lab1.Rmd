@@ -137,4 +137,3 @@ convergenceIndex <- function(v, minVariance, intervalSize, expectedMean) {
 
 * Mean convergence: `r trialSizes[convergenceIndex(means, 0.01, 5, expectedMean)]` rolls
 * Variance convergence: `r trialSizes[convergenceIndex(variances, 0.01, 5, expectedVariance)]` rolls
-
