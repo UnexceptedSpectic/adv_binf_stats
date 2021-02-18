@@ -1,0 +1,146 @@
+---
+title: "lab2"
+output:
+  html_document:
+    df_print: paged
+---
+
+#### Suppose that in a population, there is 1/3 chance that a given person has a mutation in some gene. 
+
+
+Define the probability of a person having the mutation.
+```{r}
+p_mutation <- 1/3
+```
+
+
+Sampling 30 people, the probability that exactly 12 of them have the mutation is:
+```{r}
+p_value <- binom.test(x=12, n=30, p=p_mutation, "two.sided")$p.value
+```
+**P-value: `r p_value`**
+
+A probability density function showing the distribution for observing exactly one to thirty people with the mutation.
+```{r}
+plot(1:30, dbinom(x=1:30, size=30, prob=p_mutation))
+```
+
+The mean and variance for the expected number of people with the mutation are:
+```{r}
+expectedMean <- 30 * p_mutation
+expectedVariance <- 30 * p_mutation * (1 - p_mutation)
+```
+**Expected mean: `r expectedMean`**  
+**Expected variance: `r round(expectedVariance, 2)`**
+
+<br/>
+
+#### Suppose the background expected survival rate for a disease is 0.4. You are running a clinical trial and have 100 patients on a new drug. 47 patients die; 53 survive.
+
+Define the given values.
+```{r}
+p_survival <- 0.4
+n_total <- 100
+n_dead <- 47
+n_survived <- 53
+```
+
+
+A probability density function showing the number of patients that survive under the null hypothesis.
+```{r}
+plot(1:n_total, dbinom(x=1:n_total, size=n_total, prob=p_survival))
+```
+
+The p-value for a null hypothesis that the drug has no effect is:
+```{r}
+p_value <- binom.test(x=n_survived, n_total, p=p_survival, "two.sided")$p.value
+```
+**P-value: `r round(p_value, 4)`**
+
+Confirm by finding the two-sided tail area under the probability density function curve.
+```{r}
+expectedMean <- n_total * p_survival
+deviation <- abs(expectedMean - n_survived)
+densityDist <- dbinom(1:n_total, n_total, p_survival)
+sum(densityDist[1:(expectedMean - deviation)]) + sum(densityDist[n_survived:n_total])
+```
+
+ The p-value for a null hypothesis that the drug does not improve survival is:
+```{r}
+p_value <-binom.test(x=n_survived, n_total, p=p_survival, "greater")$p.value
+```
+**P-value: `r round(p_value, 4)`**
+
+Confirm by finding the right-sided tail area under the probability density function curve.
+```{r}
+sum(densityDist[n_survived:n_total])
+```
+
+<br/>
+
+#### simulate 1,000 experiments in which 10,000 patients are sampled with a 1/2 chance of seeing a mutation.
+
+Define given values.
+```{r}
+n_experiments <- 1000
+n_samples <- 10000
+p_mutation <- 1/2
+```
+
+Perform simulation.
+```{r}
+mutation_observations <- rbinom(n_experiments, n_samples, p_mutation)
+length(mutation_observations)
+```
+
+
+The expected and observed means and variances of the simulation vector are:
+```{r}
+expectedMean <- n_samples * p_mutation
+observedMean <- mean(mutation_observations)
+```
+**Expected mean: `r expectedMean`**  
+**Observed mean: `r round(observedMean, 0)`**
+
+```{r}
+expectedVariance <- n_samples * p_mutation * (1 - p_mutation)
+observedVariance <- var(mutation_observations)
+```
+**Expected variance: `r expectedVariance`**  
+**Observed variance: `r round(observedVariance, 0)`**
+
+*Additional exploration:* As expected, the number of patients with the mutation visually centers around the expected mean of `r expectedMean`.
+```{r}
+hist(mutation_observations, breaks = 1000)
+```
+
+
+For each simulated experiment, calculate a p-value for the null hypothesis that the frequency of the mutated allele in the population is 1/2.
+
+Define a function for this purpose.
+```{r}
+get_p_values <- function(pval) {
+  p_values <- vector()
+  for (i in 1:length(mutation_observations)) {
+    p_values[i] = binom.test(mutation_observations[i], n_samples, p=pval, "two.sided")$p.value
+  }
+  return(p_values)
+}
+```
+
+```{r}
+p_values <- get_p_values(p_mutation)
+head(p_values)
+```
+A histogram showing the frequencies of the p-values calculated above. 
+```{r}
+hist(p_values, breaks=200, main="Histogram of p-values \n(Expected frequency: 1/2, Test frequency: 1/2)")
+```
+
+The above histogram shows a **uniform distribution** of experimental p-values as is expected due to the fact that the sample size of each experiment is sufficiently large to make the binomial distribution resemble a normal one. 
+
+Suppose that the same simulation data (generated using `p_mutation=0.5`) is tested for having a slightly higher mutation frequency of 0.51. The result is an expected shift in the associated p-values histogram to the left. Fewer experiments support the alternative hypothesis that the true mutation frequency is 0.51, and this makes sense because the data weren't generated around this value. A similar leftward shift would occur given any deviation of the test frequency value from the one used to generate the data and would become more pronounced with increasing deviation. Due to the large number of samples associated with each experiment and the resulting narrowing/convergence of the distribution of observed mutations around the expected value of 5000, a small such deviation in test value would have significant impact on the p-value distribution. 
+```{r}
+p_values <- get_p_values(pval=0.51)
+hist(p_values, breaks=200, main="Histogram of p-values \n(Expected frequency: 0.50, Test frequency: 0.51)")
+```
