@@ -1,0 +1,182 @@
+---
+title: "lab3"
+output:
+  html_document:
+    df_print: paged
+---
+
+#### Suppose you have a loaded die with a 10% chance of rolling a 1-5 and a 50% chance of rolling a 6, and assume that 99% of dice are fair.
+
+Define the given parameters.
+```{r}
+prob_fair <- 0.99
+prob_loaded <- 1 - prob_fair
+roll_liklihoods_given_fair <- rep(1/6, 6)
+roll_liklihoods_given_loaded <- c(rep(0.1, 5), 0.5)
+```
+
+Suppose a sample die is rolled with the following outcomes:
+```{r}
+observed_rolls <- c(2, 3, 2, 6, 3, 5, 6, 2, 6, 6, 2, 6, 6, 2, 3, 6, 6, 6, 5, 6, 6, 5, 6, 6, 6, 6, 6, 4, 6, 3, 3, 3, 6, 6, 5, 6, 6)
+```
+
+A graph showing the posterior probability that the die is loaded as a function of the number of times the die has been rolled, given the above roll outcomes.
+```{r}
+loaded_probs <- vector()
+
+for(i in 1:length(observed_rolls)) {
+	loaded_probs[i] <- prob_loaded
+	
+	denom <- prob_fair * roll_liklihoods_given_fair[observed_rolls[i]] + prob_loaded * roll_liklihoods_given_loaded[observed_rolls[i]]
+	
+	# Update prior beliefs
+	prob_fair <- prob_fair * roll_liklihoods_given_fair[observed_rolls[i]] / denom
+	prob_loaded <- prob_loaded * roll_liklihoods_given_loaded[observed_rolls[i]] / denom
+	
+}
+
+plot(1:length(observed_rolls), loaded_probs, ylab="P(Die loaded | rolls)", xlab="Number of rolls", ylim=c(0,1), xlim=c(1, length(observed_rolls) + 1))
+```
+
+
+Determine the average number of loaded die rolls required to establish 99.999% confidence that the die is loaded.
+
+Simulate a test result until a confidence threshold is met.
+```{r}
+number_trials <- 10000
+confidence_cutoff <- 0.99999
+rolls_required <- vector()
+
+for (i in i:number_trials) {
+  
+  prob_fair <- 0.99
+  prob_loaded <- 1 - prob_fair
+  number_rolls <- 0
+  while (prob_loaded < confidence_cutoff) {
+    
+    number_rolls <- number_rolls + 1
+    
+    # Simulate rolling a loaded die
+    roll_result <- sample(x=1:length(roll_liklihoods_given_loaded), size=1, prob=roll_liklihoods_given_loaded)
+    
+    denom <- prob_fair * roll_liklihoods_given_fair[roll_result] + prob_loaded * roll_liklihoods_given_loaded[roll_result]
+	
+  	# Update prior beliefs
+    prob_fair <- prob_fair * roll_liklihoods_given_fair[roll_result] / denom
+  	prob_loaded <- prob_loaded * roll_liklihoods_given_loaded[roll_result] / denom
+    
+  }
+    
+    rolls_required <- c(rolls_required, number_rolls)
+  }
+
+avg_rolls <- mean(rolls_required)
+```
+The average number of rolls required, given a sample size of `r as.integer(number_trials)`, is **`r round(avg_rolls, 0)`**.
+
+<br/>
+
+#### Suppose a hospital has a $1 diagnostic test for a disease with a known background prevalence of 0.1% that has a true positive rate of 91% and a true negative rate of 84%. Assume the test can be repeated for each patient and the results of the test are independent of one another, allowing for Bayesian updates.
+
+
+Define the given parameters
+```{r}
+prob_disease <- 0.01
+prob_health <- 1 - prob_disease
+true_positive_liklihood = 0.91
+false_positive_liklihood = 1 - true_positive_liklihood
+true_negative_liklihood = .84
+false_negative_liklihood = 1 - true_negative_liklihood
+test_price <- 1
+```
+
+Suppose a patient has the disease. To achieve the hospital’s requirement of 99.999% test result certainty, about how many times would the patient on average have to repeat the test?
+
+Define a function for simulating tests and prior updates.
+```{r}
+get_mean_tests <- function(diseased) {
+  tests_required <- vector()
+  for (i in i:number_trials) {
+  
+    prob_disease <- 0.01
+    prob_health <- 1 - prob_disease
+    number_tests <- 0
+    while (prob_disease < confidence_cutoff & prob_health < confidence_cutoff) {
+      
+      number_tests <- number_tests + 1
+      
+      # Simulate an accurate test result
+      if (diseased) {
+        test_result <- sample(x=1:2, size=1, prob=c(true_positive_liklihood, false_positive_liklihood))
+      } else {
+        test_result <- sample(x=1:2, size=1, prob=c(true_negative_liklihood, false_negative_liklihood))
+      }
+      
+      denom <- prob_disease * (if (test_result==1) true_positive_liklihood else false_negative_liklihood) + prob_health * (if (test_result==1) false_positive_liklihood else true_negative_liklihood)
+  	
+    	# Update prior beliefs
+      prob_disease <- prob_disease * (if (test_result==1) true_positive_liklihood else false_negative_liklihood) / denom
+    	prob_health <- prob_health * (if (test_result==1) false_positive_liklihood else true_negative_liklihood) / denom
+      
+    }
+      
+      tests_required <- c(tests_required, number_tests)
+  }
+
+  return(mean(tests_required))
+}
+```
+
+Simulate tests in a diseased and healthy individual.
+```{r}
+number_trials <- 1000
+confidence_cutoff <- 0.99999
+avg_tests_diseased <- get_mean_tests(diseased=TRUE)
+avg_tests_healthy <- get_mean_tests(diseased=FALSE)
+```
+On average, **`r round(avg_tests_diseased, 0)`** tests are required to establish `r confidence_cutoff * 100`% confidence in a positive test result.  
+On average, **`r round(avg_tests_healthy, 0)`** tests are required to establish `r confidence_cutoff * 100`% confidence in a negative test result.
+
+Suppose the hospital anticipates testing one million patients per year. What should the hospital budget for these tests?
+```{r}
+number_patients <- 1000000
+yearly_cost <- number_patients * (prob_disease * avg_tests_diseased + prob_health * avg_tests_healthy) * test_price
+```
+The anticipated yearly cost is: **$`r formatC(as.integer(round(yearly_cost, 0)), format="d", big.mark=",")`**.
+
+<br/>
+
+#### Suppose another manufacturer offers an improved, but more expensive test with a true positive rate of 96% and a true negative rate of 95%.
+
+Define the given parameters
+```{r}
+true_positive_liklihood = 0.96
+false_positive_liklihood = 1 - true_positive_liklihood
+true_negative_liklihood = .95
+false_negative_liklihood = 1 - true_negative_liklihood
+```
+
+Determine the number of times the new test must be repeated in diseased and healthy patients to conform to the hospital's test result confidence requirement. 
+```{r}
+avg_tests_diseased <- get_mean_tests(diseased=TRUE)
+avg_tests_healthy <- get_mean_tests(diseased=FALSE)
+```
+On average, **`r round(avg_tests_diseased, 0)`** tests are required to establish `r confidence_cutoff * 100`% confidence in a positive test result.  
+On average, **`r round(avg_tests_healthy, 0)`** tests are required to establish `r confidence_cutoff * 100`% confidence in a negative test result.
+
+Supposing a requirement of one test per patient, what test price would warrant using the updated test? 
+```{r}
+number_patients <- 1000000
+yearly_tests <- number_patients
+# yearly_tests * test_price < yearly_cost (using original test)
+test_price <- yearly_cost / yearly_tests
+```
+A test price lower than **$`r round(test_price, 2)`** would be required to incentivize the hospital in switching to the new test.
+
+Allowing as many tests as necessary to meet the hospital's test result confidence requirement, what test price would warrant using the updated test? 
+```{r}
+number_patients <- 1000000
+yearly_tests <- number_patients * (prob_disease * avg_tests_diseased + prob_health * avg_tests_healthy)
+test_price <- yearly_cost / yearly_tests
+```
+A test price lower than **$`r round(test_price, 2)`** would be required to incentivize the hospital in switching to the new test.
