@@ -1,0 +1,120 @@
+---
+title: "lab4"
+output:
+  html_document:
+    df_print: paged
+---
+
+#### Plot the prior graph for a coin where the prior belief for p(head) is represented by the following exponential function: `dexp(x, rate =5) / 0.9932621`
+
+Note: The denominator is chosen to make the integral between 0 and 1 sum to 1.
+```{r}
+p_head <- seq(0, 1, 0.001)
+plot(p_head, dexp(p_head, rate=5) / 0.9932621, ylab="exp_prior", xlab="p(head)")
+```
+
+#### Calculate the posterior graph with both the Metropolis algorithm and grid approximation for a case with 14 heads and 10 tails (where x = p(head)). Show the two methods roughly agree.  Compare these to a plot with a posterior for new data of 14 heads and 10 tails with a prior with beta(40,40).
+
+Define given conditions.
+```{r}
+new_heads_obs <- 14
+new_tails_obs <- 10
+bp_alpha <- 40
+bp_beta <- 40
+```
+
+
+Define a function for using the Metropolis algorithm to approximate posterior beliefs, given the exponential prior distribution defined above. 
+```{r}
+generate_metropolis_posteriors <- function(new_heads, new_tails) {
+  piOld <- 0.5
+  
+  numIterations <- 100000
+  posteriorDist <- vector()
+  
+  for(i in 1:numIterations) {
+  	# exponential decay prior
+  	pOld <- dexp(piOld, rate=5) / 0.9932621 * dbinom(new_heads, new_heads + new_tails, piOld)
+  	
+  	piNew <- piOld + rnorm(1, 0, sd =0.01);
+  	
+  	if(piNew > 1) 
+  		piNew <- 1;
+  	
+  	if(piNew < 0) 
+  		piNew <- 0;
+  		
+  	pNew <- dexp(piNew, rate=5) / 0.9932621 * dbinom(new_heads, new_heads + new_tails, piNew)
+  	
+  	ratio <- pNew / pOld
+  	
+  	if(ratio > 1 || ratio >= runif(1)) 
+  		piOld = piNew;
+  		
+  	posteriorDist[i] = piOld;	
+  }
+  return(posteriorDist)
+}
+```
+
+Define a function for using grid approximation to determine posterior beliefs, given the exponential prior distribution defined above. 
+```{r}
+generate_grid_posteriors <- function(xVals, new_heads, new_tails) {
+
+  posteriorDist <- vector(length=length(xVals))
+
+  for(i in 1:length(xVals)) {
+  	# exponential decay prior
+  	posteriorDist[i] <- dexp(xVals[i], rate=5) / 0.9932621 * dbinom(new_heads, new_heads + new_tails, xVals[i])
+  }
+  return(posteriorDist) 
+} 
+```
+
+Generate plot of posterior approximations and their analytical solution. 
+```{r}
+# Generate the posterior distribution, as approximated by the Metropolis algorithm.
+metropolis_posteriors <- generate_metropolis_posteriors(new_heads_obs, new_tails_obs)
+metropolis_hist <- hist(metropolis_posteriors, breaks=200, plot=FALSE)
+# Generate the posterior distribution, as determined by grid approximation.
+grid_posteriors <- generate_grid_posteriors(metropolis_hist$mids, new_heads_obs, new_tails_obs)
+# Generate the posterior distribution, as determined by a beta prior distribution.
+beta_posteriors <- dbeta(metropolis_hist$mids, bp_alpha+new_heads_obs, bp_beta+new_tails_obs)
+# Plot the posterior curves for each for comparison.
+# Normalized metropolitan
+plot(metropolis_hist$mids, metropolis_hist$counts/length(metropolis_posteriors), main="Exact and approximate posteriors", col="blue", ylim=c(0, max(beta_posteriors/sum(beta_posteriors))), ylab="Posterior", xlab="p(head)") 
+# Normalized grid approximation
+lines(metropolis_hist$mids, grid_posteriors/sum(grid_posteriors), col="orange")
+# Normalized exact analytical posterior
+lines(metropolis_hist$mids, beta_posteriors/sum(beta_posteriors), col="red")
+```
+
+The Metropolis and grid approximations produce results of similar accuracy and confidence. The analytical solution, however, has a much more narrow confidence interval. 
+
+#### Repeat the same analysis, but with a greater given number of newly observed heads and tails - 583 and 417, respectively.
+
+Define new simulation/calculation parameters.
+```{r}
+new_heads_obs <- 583
+new_tails_obs <- 417
+```
+
+Generate plot of posterior approximations and their analytical solution. 
+```{r}
+# Generate the posterior distribution, as approximated by the Metropolis algorithm.
+metropolis_posteriors <- generate_metropolis_posteriors(new_heads_obs, new_tails_obs)
+metropolis_hist <- hist(metropolis_posteriors, breaks=200, plot=FALSE)
+# Generate the posterior distribution, as determined by grid approximation.
+grid_posteriors <- generate_grid_posteriors(metropolis_hist$mids, new_heads_obs, new_tails_obs)
+# Generate the posterior distribution, as determined by a beta prior distribution.
+beta_posteriors <- dbeta(metropolis_hist$mids, bp_alpha+new_heads_obs, bp_beta+new_tails_obs)
+# Plot the posterior curves for each for comparison.
+# Normalized metropolitan
+plot(metropolis_hist$mids, metropolis_hist$counts/length(metropolis_posteriors), main="Exact and approximate posteriors", col="blue", ylim=c(0, max(beta_posteriors/sum(beta_posteriors))), ylab="Posterior", xlab="p(head)") 
+# Normalized grid approximation
+lines(metropolis_hist$mids, grid_posteriors/sum(grid_posteriors), col="orange")
+# Normalized exact analytical posterior
+lines(metropolis_hist$mids, beta_posteriors/sum(beta_posteriors), col="red")
+```
+
+A greater number of new coin flip observations results in approximations that have narrower confidence intervals that more closely resemble that of the analytical solution. The more accurate posterior approximations result from more data being available for training the approximation models/composing the result posterior distributions, due to the law of large numbers.  
