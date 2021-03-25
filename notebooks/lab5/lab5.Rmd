@@ -1,0 +1,107 @@
+---
+title: "lab5"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+#### Read and normalize the counts table given in [this](http://afodor.github.io/classes/stats2015/longitdunalRNASeqData.zip) RNA seq dataset of *E. Coli* genes from mice.
+
+```{r "setup", include=FALSE}
+# Set location of Rmd as root dir
+knitr::opts_knit$set(root.dir = ".") 
+```
+
+Read data from disk and view a summary of its contents.
+```{r}
+rawCounts <- read.table("data/nc101_scaff_dataCounts.txt", sep="\t", header=TRUE, row.names=1)
+head(rawCounts)
+```
+The first 3 columns represent samples from “day 2 (before the mice have inflammation symptoms), the next 3 from “week 12” (inflammation onset), and the last 5 from “week 20” (cancer onset).
+
+<br>
+
+Remove rare genes (defined as those having a count median of less than 5).
+```{r}
+nonRareCounts <- rawCounts[apply(rawCounts, 1, median) > 5,]
+```
+
+Normalize by determining relative counts to correct for sequencing depth.
+```{r}
+normalizedCounts <- nonRareCounts
+for (i in 1:ncol(nonRareCounts))
+{
+	colSum <- sum(nonRareCounts[,i])
+	normalizedCounts[,i] <- nonRareCounts[,i]/colSum
+}
+head(normalizedCounts)
+```
+Each column sums to 1.
+
+<br>
+
+#### Perform a t-test for each gene, screening for differences in expression across sample groups and noting the effects of p-value correction. 
+
+Define sample groups
+```{r}
+day2 <- normalizedCounts[1:3]
+week12 <- normalizedCounts[4:6]
+week20 <- normalizedCounts[7:11]
+```
+
+```{r}
+nGenes <- dim(normalizedCounts)[1]
+pvals_2v12 <- vector(length=nGenes)
+pvals_2v20 <- vector(length=nGenes)
+pvals_12v20 <- vector(length=nGenes)
+
+for (i in 1:nGenes) {
+  # Obtain “day 2” vs. “week 12” t-test p values.
+  pvals_2v12[i] <- t.test(day2[i,], week12[i,])$p.value
+  # Obtain “day 2” vs. “week 20” t-test p values.
+  pvals_2v20[i] <- t.test(day2[i,], week20[i,])$p.value
+  # Obtain “week 12” vs. “week 20” t-test p values.
+  pvals_12v20[i] <- t.test(week12[i,], week20[i,])$p.value
+}
+```
+
+Create a table showing the number of significant differences in gene expression found (p < 0.05), given base and corrected p-values.
+```{r}
+pval_df <- data.frame(c(sum(pvals_2v12 < 0.05), 
+                        sum(pvals_2v20 < 0.05), 
+                        sum(pvals_12v20 < 0.05)),
+                          c(sum(p.adjust(pvals_2v12, "BH") < 0.05), 
+                            sum(p.adjust(pvals_2v20, "BH") < 0.05), 
+                            sum(p.adjust(pvals_12v20, "BH") < 0.05)),
+                              c(sum(p.adjust(pvals_2v12, "bonferroni") < 0.05), 
+                                sum(p.adjust(pvals_2v20, "bonferroni") < 0.05), 
+                                sum(p.adjust(pvals_12v20, "bonferroni") < 0.05)))
+colnames(pval_df) <- c("Uncorrected", 
+                       "BH FDR Corrected", 
+                       "Bonferroni Corrected")
+rownames(pval_df) <- c("day 2 vs. week 12", 
+                       "day 2 vs. week 20", 
+                       "week 12 vs. week 20")
+
+pval_df
+```
+
+#### Make histograms of all the uncorrected p-values for each of the three sample group comparisons.
+```{r}
+hist(pvals_2v12, breaks=50, main="Day 2 vs. Week 12 p-values", xlab="p-value")
+```
+
+```{r}
+hist(pvals_2v20, breaks=50, main="Day 2 vs. Week 20", xlab="p-value")
+```
+
+```{r}
+hist(pvals_12v20, breaks=50, main="Week 12 vs. Week 20 p-values", xlab="p-value")
+```
+
+#### Discussion
+While none of the above p-value distributions seem to be quite uniform, the one related to the comparison between day 2 and week 12 gene expression seems to be more so than the other two, suggesting that the mouse transcriptome was most similar between these two experimental stages. In contrast and as expected, the mouse transcriptome was most different between the day 2 and week 20 stages The transcriptomal *shift* was larger between week 12 and week 20 than it was between day 2 and week 12. These results are consistent with those resulting from p-value correction, although the magnitude of difference and shift is smaller under Benjamini & Hochberg correction and even more so under Bonferroni correction. 
+
+The above observations suggest that gene expression changed in Il10<sup>-\\-</sup> mice with the onset of inflammation and then changed even more with the onset of cancer, which is a reasonable conclusion, given the genetic disregulation characteristic of the disease. The number of genes in which such changes are deemed to be significant, however, depends on which p-value correction method (or lack thereof) is used.
