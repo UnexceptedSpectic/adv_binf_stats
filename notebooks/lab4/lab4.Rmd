@@ -117,4 +117,4 @@ lines(metropolis_hist$mids, grid_posteriors/sum(grid_posteriors), col="orange")
 lines(metropolis_hist$mids, beta_posteriors/sum(beta_posteriors), col="red")
 ```
 
-A greater number of new coin flip observations results in approximations that have narrower confidence intervals that more closely resemble that of the analytical solution. The more accurate posterior approximations result from more data being available for training the approximation models/composing the result posterior distributions, due to the law of large numbers.  
+A greater number of new coin flip observations results in approximations that have narrower confidence intervals that more closely resemble that of the analytical solution. The more accurate posterior approximations result from more data being available for training the approximation models/composing the result posterior distributions, due to the fact that with a large sample size, the prior matters a lot less in the Bayesian universe; even with a largely inaccurate prior, given a sufficiently large amount of training/observed data, the model will overpower the prior and the solution will approach the true value.
