@@ -1,0 +1,71 @@
+---
+title: "HANES Project"
+output:
+  html_document:
+    df_print: paged
+---
+
+#### Analysis of CDC's 2017-2018 National Health and Nutrition Examination Survey (HANES)
+
+```{r "setup", include=FALSE}
+# Set location of Rmd as root dir
+knitr::opts_knit$set(root.dir = ".") 
+```
+
+Read transformed data subset from disk, and view a random sample of its contents. The complete raw data may be accessed [here](https://wwwn.cdc.gov/nchs/nhanes/continuousnhanes/default.aspx?BeginYear=2017). Key demographic and nutrition metrics were extracted, and only data from participants providing two days' worth of data (some only participated for a single day) were persisted. Each row represents a food item that was consumed by a participant in a given `day`, and participants are identified by the `id` column.
+```{r}
+hanes <- read.csv("data/hanes-survey_2017-2018.csv", header=TRUE)
+hanes[sample(1:dim(hanes)[1], 10),]
+```
+
+Perform one-way ANOVAs between each categorical demographic attribute and each continuous nutrition attribute. Save the p-values and a textual record of the comparisons made.  
+```{r}
+demographic_columns <- 3:8
+nutrition_columns <- 9:length(hanes)
+
+anova_pvalues <- vector()
+comparison_labels <- vector()
+
+demographic_counter <- 1
+
+for (demographic_col in hanes[,demographic_columns]) {
+  
+  nutrition_counter <- 1
+  
+  for (nutrition_col in hanes[,nutrition_columns]) {
+    
+    anova_pvalues <- c(anova_pvalues, summary(aov(nutrition_col~demographic_col))[[1]][["Pr(>F)"]][1]) 
+    
+    comparison_labels <- c(comparison_labels, 
+                           paste(colnames(hanes)[nutrition_columns[nutrition_counter]], 
+                                 " vs", 
+                                 colnames(hanes)[demographic_columns[demographic_counter]]))
+    
+    nutrition_counter <- nutrition_counter + 1
+  }
+  demographic_counter <- demographic_counter + 1
+}
+head(anova_pvalues)
+head(comparison_labels)
+```
+
+Identify the comparisons that suggest categorical differences.
+```{r}
+comparison_labels[p.adjust(anova_pvalues, "bonferroni") < 0.05]
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
