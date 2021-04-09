@@ -1,0 +1,148 @@
+---
+title: "lab6"
+output:
+  html_document:
+    fig_height: 7
+    fig_width: 12
+    df_print: paged
+---
+
+#### Analyze the relationship between the number of cell divisions and cancer risk. 
+* Original data published in *Variation in cancer risk among tissues can be explained by the number of stem cell divisions* ([link](https://science.sciencemag.org/content/347/6217/78)).
+
+```{r "setup", include=FALSE}
+# Set location of Rmd as root dir
+knitr::opts_knit$set(root.dir = ".") 
+# Load libraries
+library(ggrepel)
+library("lmtest")
+```
+
+Read data from disk and view a summary of its contents.
+```{r}
+cancer_risk <- read.table("data/cancerRisk.txt", sep="\t", header=TRUE)
+head(cancer_risk)
+```
+
+<br>
+
+#### Graph "Lifetime Cancer Risk" vs. "Cumulative Cell Divisions", on a log10-log10 scale.
+```{r}
+division_risk_df <- data.frame(log10(cancer_risk$CumulativeCellDivisions), log10(cancer_risk$Lifetime_cancer_risk))
+names(division_risk_df) <- c("cumulativeDivisions", "lifetimeRisk")
+ggplot(division_risk_df, aes(x=cumulativeDivisions , y=lifetimeRisk)) +
+  geom_point(colour="red", size=3) + 
+  xlab("Total stem cell divisions (log10)") + 
+  ylab("Lifetime risk (log10)") + 
+  geom_text_repel(aes(label=cancer_risk$Cancer_type), size=4, color="black")
+```
+
+<br>
+
+#### Fit a linear model for "Lifetime Cancer Risk" vs. "Cumulative Cell Divisions".
+```{r}
+division_risk_lm <- lm(log10(cancer_risk$CumulativeCellDivisions)~log10(cancer_risk$Lifetime_cancer_risk))
+plot(log10(cancer_risk$CumulativeCellDivisions)~log10(cancer_risk$Lifetime_cancer_risk),
+     xlab="Total stem cell divisions (log10)",
+     ylab="Lifetime risk (log10)")
+abline(division_risk_lm)
+```
+
+#### Examine the linear model.
+```{r}
+slope_pval <- summary(division_risk_lm)$coefficients[2,"Pr(>|t|)"]
+line_rsquared <- summary(division_risk_lm)$r.squared
+```
+The p-value for the null hypothesis that the slope of the regression between the above two variables is zero is **`r formatC(slope_pval, format = "e", digits = 3)`**. The r-squared value is **`r round(line_rsquared, 3)`**.
+
+<br>
+
+#### Validate model assumptions.
+Are the assumptions of constant variance and normal distribution of the residuals reasonable for this model? 
+```{r}
+plot(division_risk_lm)
+```
+
+Based on the plots shown above, the residuals appear to be normally distributed around the fitted line of the linear model, although, based on the *Normal Q-Q* plot, this assumption may be violated at the residual extremes.
+
+Confirm using the Kolmogorov-Smirnov test.
+```{r}
+ks.test(residuals(division_risk_lm), "pnorm", mean=mean(residuals(division_risk_lm)), sd=sqrt(var(residuals(division_risk_lm))))
+```
+The resulting p-value is greater than 0.5, indicating that the null hypothesis that the residuals and and the normal distribution are the same continuous distribution is true i.e. the residuals are normally distributed around the line.
+
+<br>
+
+To test for constant variance (homoskedasticity), the Breusch–Pagan test can be used.
+```{r}
+bptest(division_risk_lm)
+```
+The above p-value is greater than 0.5, indicating that the the null hypothesis of homoskedasticity is true i.e. the linear model residuals have constant variance. 
+
+<br>
+
+Thus, the assumptions of residual constant variance and normal distribution are reasonable.   
+
+<br>
+
+#### Consider the case-control data for colorectal adenomas and obesity (BMI).
+Read colorectal adenoma microbial prevalence data from disk and view a summary of its contents.
+```{r}
+case_control <- read.table("data/caseControlData.txt", sep="\t", header=TRUE)
+# Clean up sample id for future join
+case_control$sample <- unlist(lapply(case_control$sample, function(x) strsplit(as.character(x), split="_")[[1]][1]))
+head(case_control)
+```
+Read obesity (BMI) data from disk and view a summary of its contents.
+```{r}
+bmi_data <- read.table("data/BMI_Data.txt", sep="\t", header=TRUE)
+names(bmi_data) <- c("sample", "bmi")
+head(bmi_data)
+```
+Merge the data sets using an inner join on the *sample* column and print a summary of the column names.
+```{r}
+merged_data <- merge(case_control, bmi_data, by="sample")
+paste(c(colnames(merged_data)[1:3], 
+        "...", 
+        colnames(merged_data)[(dim(merged_data)[2]-3):dim(merged_data)[2]]), 
+      collapse=" ")
+```
+
+Generate p-values from linear regressions comparing BMI to the relative abundance of each OTU.
+```{r}
+p_vals <- vector(length=length(merged_data) - 2)
+non_na_filter <- !is.na(merged_data[,length(merged_data)])
+bmi_test_data <- merged_data[,length(merged_data)][non_na_filter]
+for (i in 2:(length(merged_data) - 1)) {
+  otu_test_data <- merged_data[,i][non_na_filter]
+  otu_rel_abundance <- otu_test_data/sum(otu_test_data)
+  p_vals[i-1] <- summary(lm(otu_rel_abundance~bmi_test_data))$coefficients[2,"Pr(>|t|)"]
+}
+```
+
+Plot the unadjusted distribution of p-values.
+```{r}
+plot(p_vals,
+     main="p-value distribution",
+     xlab="OTU",
+     ylab="p-value")
+```
+The above distribution appears to be uniformly distributed, and therefore, the microbial community does not seem to be influencing body weight in this cohort.
+
+<br>
+
+#### Screen for associations significant at a 10% false discovery rate.
+```{r}
+p_value_thershold <- 0.1
+significant_p_vals <- p_vals < p_value_thershold
+```
+Assuming no p-value correction, `r sum(significant_p_vals)` associations are significant at a `r p_value_thershold * 100`% false discovery rate.
+
+```{r}
+bh_significant_p_vals <- p.adjust(p_vals, method="BH") < p_value_thershold
+```
+Using p-values adjusted using Benjamini & Hochberg correction, `r sum(bh_significant_p_vals)` associations are significant at a `r p_value_thershold * 100`% false discovery rate.
+
+```{r}
+
+```
