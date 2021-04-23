@@ -1,0 +1,156 @@
+---
+title: "lab7"
+output:
+  html_document:
+    df_print: paged
+---
+
+#### Read and normalize the counts table given in [this](http://afodor.github.io/classes/stats2015/longitdunalRNASeqData.zip) RNA seq dataset of *E. Coli* genes from mice.
+
+```{r "setup", include=FALSE}
+# Set location of Rmd as root dir
+knitr::opts_knit$set(root.dir = ".") 
+```
+
+Read data from disk and view a summary of its contents.
+```{r}
+rawCounts <- read.table("data/nc101_scaff_dataCounts.txt", sep="\t", header=TRUE, row.names=1)
+head(rawCounts)
+```
+The first 3 columns represent samples from “day 2 (before the mice have inflammation symptoms), the next 3 from “week 12” (inflammation onset), and the last 5 from “week 20” (cancer onset).
+
+<br>
+
+Remove rare genes (defined as those having a count median of less than 5).
+```{r}
+nonRareCounts <- rawCounts[apply(rawCounts, 1, median) > 5,]
+```
+
+Normalize by determining relative counts to correct for sequencing depth.
+```{r}
+normalizedCounts <- nonRareCounts
+for (i in 1:ncol(nonRareCounts))
+{
+	colSum <- sum(nonRareCounts[,i])
+	normalizedCounts[,i] <- nonRareCounts[,i]/colSum
+}
+head(normalizedCounts)
+```
+
+<br>
+
+#### Generate linear models with differing parameter configurations and save the respective p-values.
+
+
+Define and initialize vectors in which to store the resultant p-values.
+```{r}
+pValuesOneWayAnova <- vector()
+pValuesRegression <- vector()
+pValueModelDiff <- vector()
+```
+
+Define sample days and their labels.
+```{r}
+sampleDays <- c(rep(2, 3), rep(12 * 7, 3), rep(20 * 7 , 5))
+sampleLabels <- factor(c(rep("day2", 3), rep("week12", 3), rep("week20", 5)))
+```
+
+Perform ANOVAs and save the resulting p-values.
+```{r}
+for (i in 1:nrow(normalizedCounts)) {
+	row <- as.numeric(normalizedCounts[i,])
+	# (A) Perform a one-way ANOVA with categories “day 2”, “week 12”, and “week 20”.
+	pValuesOneWayAnova[i] <- anova(lm(row ~ sampleLabels))$"Pr(>F)"[1]
+	# (B) Perform an ANOVA as a linear regression as a function of time.
+	pValuesRegression[i] <- anova(lm(row ~ sampleDays))$"Pr(>F)"[1]
+	# (C) Perform an ANVOA comparing the three-parameter model from (A) and the two parameter model from (B).
+	pValueModelDiff[i] <- anova(lm(row ~ sampleDays*sampleLabels))$"Pr(>F)"[2]
+}
+```
+
+<br>
+
+#### Plot out the histogram of all p-values.
+
+Histogram for the p-values of three-parameter ANOVAs based on the categories “day 2”, “week 12”, and “week 20”.
+```{r}
+hist(p.adjust(pValuesOneWayAnova, method="BH"),
+     breaks=50,
+     main="Three-parameter ANOVA p-value distribution",
+     xlab="BH adjusted p-value")
+```
+
+* Based on the above graph, **`r sum(p.adjust(pValuesOneWayAnova, method="BH") < 0.05)`** genes are significantly different between sampling times at a BH corrected p-value threshold of 0.05.
+
+<br>
+
+Histogram for the p-values of two-parameter ANOVAs using linear regression dependent on time.
+```{r}
+hist(p.adjust(pValuesRegression, method="BH"),
+     breaks=50,
+     main="Two-parameter ANOVA p-value distribution",
+     xlab="BH adjusted p-value")
+```
+
+* Based on the above graph, **`r sum(p.adjust(pValuesRegression, method="BH") < 0.05)`** genes are significantly different between sampling times (the regression slope is not 0) at a BH corrected p-value threshold of 0.05.
+
+<br>
+
+Histogram of p-values from ANOVAs comparing the two-parameter model to the three-parameter model.
+```{r}
+hist(p.adjust(pValueModelDiff, method="BH"),
+     breaks=50,
+     main="Two- v Three-parameter ANOVA p-value distribution",
+     xlab="BH adjusted p-value")
+```
+
+* Based on the above graph, **`r sum(p.adjust(pValueModelDiff, method="BH") < 0.05)`** genes have different associated two- and three-parameter models at a BH corrected p-value threshold of 0.05.
+
+<br>
+
+#### Plot the relative abundance of the most significant gene under each of the three ANOVA models.
+
+Create a dataframe containing the p-values from each of the three ANOVA models.
+```{r}
+index <- 1:length(pValuesOneWayAnova)
+pval.df <- data.frame(index, pValuesOneWayAnova, pValuesRegression, pValueModelDiff)
+```
+
+A boxplot showing the most significant gene under the 3-parameter ANOVA model.
+```{r}
+pval.df.3pSorted <- pval.df[order(pval.df$pValuesOneWayAnova),]
+row <- normalizedCounts[pval.df.3pSorted$index[1],]
+gene <- rownames(row)
+boxplot(as.numeric(row) ~ sampleLabels,
+        main=paste("3-parameter ANOVA model,", gene),
+        ylab="Relative abundance",
+        xlab="Sampling time") 
+```
+
+A boxplot showing the most significant gene under the 2-parameter ANOVA model.
+```{r}
+pval.df.2pSorted <- pval.df[order(pval.df$pValuesRegression),]
+row <- normalizedCounts[pval.df.2pSorted$index[1],]
+gene <- rownames(row)
+plot(as.numeric(row) ~ sampleDays,
+        main=paste("2-parameter ANOVA model,", gene),
+        ylab="Relative abundance",
+        xlab="Sampling day")
+abline(lm(as.numeric(row) ~ sampleDays))
+```
+
+A boxplot showing the most significant gene under the ANOVA comparing the full 3-parameter model and the reduced 2-parameter model.
+```{r}
+pval.df.diffSorted <- pval.df[order(pval.df$pValueModelDiff),]
+row <- normalizedCounts[pval.df.diffSorted$index[1],]
+gene <- rownames(row)
+boxplot(as.numeric(row) ~ sampleLabels,
+        main=paste("Two- v Three-parameter ANOVA model,", gene),
+        ylab="Relative abundance",
+        xlab="Sampling time") 
+```
+
+<br>
+
+#### Choose a model.
+Given that a similar number of genes can be represented using either a 3-parameter model or a 2-parameter model, but that only a relatively small portion of 3-parameter models are statistically different from their 2-parameter counterparts, I would argue that the 2-parameter model is more appropriate for these data.
