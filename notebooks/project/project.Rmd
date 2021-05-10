@@ -1,71 +1,296 @@
 ---
-title: "HANES Project"
+title: "NHANES Project"
 output:
   html_document:
     df_print: paged
 ---
 
-#### Analysis of CDC's 2017-2018 National Health and Nutrition Examination Survey (HANES)
+#### Analysis of CDC's 2017-2018 National Health and Nutrition Examination Survey (NHANES)
+
+### Introduction
+Nutrition is a major factor contributing to health and longevity. While the dietary quality of Americans is still poor, it has improved over the years, resulting in substantial decreases to the nation's disease burden [[source](https://www.healthaffairs.org/doi/full/10.1377/hlthaff.2015.0640)]. How this improvement expands across the different groups within the population has not been consistent, and this analysis aims to examine the most recent national nutrition data to determine the relationships between nutrition, health, and demographics. The CDC's National Health and Nutrition Examination Survey for the year of 2017-2018 was used for this purpose. 
 
 ```{r "setup", include=FALSE}
 # Set location of Rmd as root dir
-knitr::opts_knit$set(root.dir = ".") 
+knitr::opts_knit$set(root.dir = ".")
+# Load libraries
+library(tidyverse)
+library(rstatix)
+library(ggpubr)
 ```
 
-Read transformed data subset from disk, and view a random sample of its contents. The complete raw data may be accessed [here](https://wwwn.cdc.gov/nchs/nhanes/continuousnhanes/default.aspx?BeginYear=2017). Key demographic and nutrition metrics were extracted, and only data from participants providing two days' worth of data (some only participated for a single day) were persisted. Each row represents a food item that was consumed by a participant in a given `day`, and participants are identified by the `id` column.
+
+### Methods
+ANOVAs were cross-performed between categorical demographic and health data and continuous nutrition data to identify variables that are categorically different with respect to their continuous counterparts. Pairwise t-tests were then performed on each of these variables to determine exactly which categories differed between each other in their means. Below is the detailed procedure outlining the steps taken to generate results. 
+
+Read transformed data subset from disk, and view a random sample of its contents. The complete raw data may be accessed [here](https://wwwn.cdc.gov/nchs/nhanes/continuousnhanes/default.aspx?BeginYear=2017). Key demographic, health, and nutrition metrics were extracted and combined into a single table, using `./data/etl.sql`. The complete database used may be reconstructed using `./data/db_dump.sql`. Apart from the `id` column, the values in each row represent either demographic/health categorical factors or continuous values representing total daily nutrient intakes for an individual participating in the survey.    
 ```{r}
-hanes <- read.csv("data/hanes-survey_2017-2018.csv", header=TRUE)
+hanes <- read.csv("data/nhanes-survey_2017-2018.csv", header=TRUE)
 hanes[sample(1:dim(hanes)[1], 10),]
 ```
 
-Perform one-way ANOVAs between each categorical demographic attribute and each continuous nutrition attribute. Save the p-values and a textual record of the comparisons made.  
+<br>
+
+Remove pregnant individuals from consideration, to prevent confounding effects.
 ```{r}
-demographic_columns <- 3:8
-nutrition_columns <- 9:length(hanes)
+# 1 indicates pregnant
+hanes <- hanes[(hanes$pregnant != 1),]
+```
 
+Define data columns as those having less than 10 unique values - an arbitrary, but manually verified cutoff value. 
+```{r}
+category_logical <- lapply(hanes, function(x) length(unique(x)) < 10)
+categorical_columns <- (1:length(hanes))[unlist(category_logical)]
+continuous_columns <- (1:length(hanes))[!unlist(category_logical)]
+```
+
+Perform one-way ANOVAs between each categorical variable and each continuous variable, to determine which comparisons suggest significant categorical differences. Save the p-values and a textual record of the comparisons made.  
+```{r}
 anova_pvalues <- vector()
-comparison_labels <- vector()
+comparison_columns <- list()
 
-demographic_counter <- 1
+comparison_counter <- 1
+category_counter <- 1
 
-for (demographic_col in hanes[,demographic_columns]) {
+for (cat_col in hanes[,categorical_columns]) {
   
-  nutrition_counter <- 1
+  continuous_counter <- 1
   
-  for (nutrition_col in hanes[,nutrition_columns]) {
+  for (cont_col in hanes[,continuous_columns]) {
     
-    anova_pvalues <- c(anova_pvalues, summary(aov(nutrition_col~demographic_col))[[1]][["Pr(>F)"]][1]) 
+    # Zeros represent missing values, so they are filtered out from the continuous variables
+    anova_pvalues <- c(anova_pvalues, summary(aov(cont_col[cont_col!=0]~cat_col[cont_col!=0]))[[1]][["Pr(>F)"]][1]) 
     
-    comparison_labels <- c(comparison_labels, 
-                           paste(colnames(hanes)[nutrition_columns[nutrition_counter]], 
-                                 " vs", 
-                                 colnames(hanes)[demographic_columns[demographic_counter]]))
+    comparison_columns[[comparison_counter]] <- c(categorical_columns[category_counter], continuous_columns[continuous_counter])
     
-    nutrition_counter <- nutrition_counter + 1
+    continuous_counter <- continuous_counter + 1
+    comparison_counter <- comparison_counter + 1
   }
-  demographic_counter <- demographic_counter + 1
+  category_counter <- category_counter + 1
 }
 head(anova_pvalues)
-head(comparison_labels)
+head(comparison_columns, 1)
 ```
 
-Identify the comparisons that suggest categorical differences.
+Identify and count the comparisons that suggest categorical differences.
 ```{r}
-comparison_labels[p.adjust(anova_pvalues, "bonferroni") < 0.05]
+significant_comparisons <- p.adjust(anova_pvalues, "bonferroni") < 0.05
+sum(significant_comparisons)
+```
+
+Define a function for obtaining continuous variable means, grouped by categorical factors. 
+```{r}
+getTtestGroupMeans <- function(test, group, cont_col, cat_col) {
+  means <- vector()
+  groups <- vector()
+  if (group == 1) {
+    groups <- test$group1
+  } else if (group == 2) {
+    groups <- test$group2
+  } else {
+    print("Error: Group must be 1 or 2, as this function takes a t-test result as input")
+    return()
+  }
+  for (i in groups) {
+    means <- c(means, round(mean(cont_col[cat_col == i]), 2))
+  }
+  return(means)
+}
+```
+
+Define a function for executing pairwise t-tests between each continuous and categorical variable.
+```{r}
+# Rows whose continuous variable has a zero value are filtered out.
+pw_ttest <- function(comp_col_pair, cat_col, cont_col) {
+  data = tibble(cat = factor(cat_col[cont_col!=0]), cont = cont_col[cont_col!=0])
+  stat.test <- data %>%
+    pairwise_t_test(
+      cont ~ cat,
+      p.adjust.method="bonferroni"
+      )
+  return(stat.test %>% 
+         add_column(cat_ind=comp_col_pair[1]) %>% 
+         add_column(cont_ind=comp_col_pair[2]) %>% 
+         add_column(comp=paste(colnames(hanes)[comp_col_pair[1]], "vs", colnames(hanes)[comp_col_pair[2]])) %>%
+         add_column(x1=getTtestGroupMeans(test=stat.test, group=1, cat_col=cat_col[cont_col!=0], cont_col=cont_col[cont_col!=0])) %>%
+         add_column(x2=getTtestGroupMeans(test=stat.test, group=2, cat_col=cat_col[cont_col!=0], cont_col=cont_col[cont_col!=0]))
+  )
+}
+```
+
+Perform pairwise t-tests between each category for variables found to have significant categorical differences. 
+```{r}
+t_tests <- NULL
+for (comp_col_pair in comparison_columns[significant_comparisons]) {
+  t_test <- pw_ttest(comp_col_pair=comp_col_pair,cat_col=hanes[,comp_col_pair[1]], cont_col=hanes[,comp_col_pair[2]])
+  t_tests <- bind_rows(t_tests, t_test)
+}
+```
+
+The below output shows the comparisons that showed the greatest differences. 
+```{r}
+sig_t_tests <- t_tests[t_tests$p.adj < 0.05,]
+sig_t_tests <- sig_t_tests[order(sig_t_tests$p.adj),]
+# Groups with 0 values represent missing information - questions unanswered by participants 
+sig_t_tests <- sig_t_tests[((sig_t_tests$group1 != 0) & (sig_t_tests$group2 != 0)),]
+# Subset and rearrange columns
+sig_t_tests <- tibble(
+  comparison=sig_t_tests$comp,
+  cat_ind=sig_t_tests$cat_ind,
+  cont_ind=sig_t_tests$cont_ind,
+  group1=sig_t_tests$group1, 
+  group2=sig_t_tests$group2, 
+  x1=sig_t_tests$x1, 
+  x2=sig_t_tests$x2, 
+  p.adj=sig_t_tests$p.adj,
+  n1=sig_t_tests$n1,
+  n2=sig_t_tests$n2)
+head(sig_t_tests)
+dim(sig_t_tests)
+```
+
+### Results and Conclusions
+
+Shown below are the results that I found to be most interesting.
+
+Define helper functions for subsetting and annotating t-tests.
+```{r}
+hanesColInd <- function(colName) {
+  return((1:length(hanes))[colnames(hanes) == colName])
+}
 ```
 
 ```{r}
-
+getTtest <- function(colname, cat_labels) {
+  res <- sig_t_tests[(sig_t_tests$cat_ind==hanesColInd(colname)),]
+  res$group1 <- cat_labels[as.numeric(res$group1)]
+  res$group2 <- cat_labels[as.numeric(res$group2)]
+  return(res)
+}
 ```
+
+<br>
+
+#### Race
+Findings: 
+
+- Non-Hispanic Asians tend to have lower BMI than Non-Hispanic Blacks, Mexican Americans, and Non-Hispanic Whites.  
+- Non-Hispanic Blacks tend to have higher BMI than do Non-Hispanic Whites or 'Other Hispanics'. 
+- Non-Hispanic Asians tend to consume less sugar than Non-Hispanic Blacks, Mexican Americans, and Non-Hispanic Whites.  
+- Non-Hispanic Whites tend to consume more sugar than do Non-Hispanic Blacks, Mexican Americans, and 'Other Hispanics'.  
+- Mexican Americans consume more cholesterol than Non-Hispanic Whites and Non-Hispanic Asians.
+
+Conclusions:
+
+- The consumption of diets higher in sugar among Non-Hispanic whites may be linked to their lower BMI when compared to Non-Hispanic Blacks, although the reasons as to why are unclear.   
+- The greater consumption of cholesterol among Mexican Americans may explain their higher BMI when compared to Non-Hispanic Asians.  
 
 ```{r}
-
+getTtest(colname="race", cat_labels=c("Mexican American", "Other Hispanic", "Non-Hispanic White", "Non-Hispanic Black", "", "Non-Hispanic Asian", "Other"))
 ```
+
+<br>
+
+#### Diabetes  
+Findings:
+
+- Those without diabetes have a lower BMI than both diabetics and those that are borderline.  
+- Those with diabetes consume less sugar, carbs, and calories overall than those without it.   
+- Diabetics consume more caffeine than those without diabetes.
+
+Conclusions:
+
+- Overweight individuals may be more susceptible to diabetes.  
+- Diabetics may be limiting their sugar and carbs to better manage their blood glucose and may be trying to lose weight.  
+- Diabetics may rely on caffeine to manage drowsiness.  
 
 ```{r}
-
+getTtest(colname="diabetes", cat_labels=c("diabetic", "non diabetic", "borderline"))
 ```
+
+<br>
+
+#### Congestive Heart Failure
+Findings:
+
+- Those diagnosed with congestive heart failure tend to have higher BMI than those that aren't or 'don't know'.  
+- Those not diagnosed with congestive heart failure tend to eat more fiber, protein, carbs, sodium, and calories in general.
+
+Conclusions:
+
+- Those without congestive heart failure consume proportionally less fat in their diets.
+- Those without congestive heart failure intake more calories, but have lower BMIs suggesting that they may be more active. 
 
 ```{r}
-
+getTtest(colname="cong_heart_failure", cat_labels=c("Yes", "No", rep("", 6), "Don't Know"))
 ```
+
+<br>
+
+#### Coronary heart disease
+Findings:
+
+- Those diagnosed with coronary heart disease tend to consume more caffeine, less calories - primarily through a reduction in protein intake - and less sodium than do those not diagnosed with the disease.
+
+Conclusions:
+
+- Those diagnosed with coronary heart disease may lack sufficient protein content in their diets.
+- Those diagnosed with coronary heart disease may consume caffeine amounts that are too high to be healthy.
+
+```{r}
+getTtest(colname="cor_heart_disease", cat_labels=c("Yes", "No", rep("", 6), "Don't Know"))
+```
+
+<br>
+
+#### Heart Attack
+Findings:
+
+- Individuals who have had a heart attack at least once consume ~50% more caffeine than those who haven't ever had a heart attack. 
+
+Conclusions:
+- Higher caffeine consumption may increase the likelihood of heart attack incidence. 
+
+
+```{r}
+getTtest(colname="had_heart_attack", cat_labels=c("Yes", "No", rep("", 6), "Don't Know"))
+```
+
+<br>
+
+#### Stroke
+Findings:
+
+- Individuals who have had a stroke at least once tend to consume less calories, which results from a decrease in intake across all the nutrient categories listed in the table below, except for caffeine.
+- Individuals who have had a stroke at least once consume ~27% more caffeine than those who have not.
+
+Conclusions:
+
+- Higher caffeine consumption, especially at the expense of alternative nutrient intake, may increase the risk of stroke.  
+
+```{r}
+getTtest(colname="had_stroke", cat_labels=c("Yes", "No"))
+```
+
+<br>
+
+#### Exercise deficiency  
+Findings:
+
+- Those told by their doctors to exercise more had a higher BMI than those who weren't.  
+  - For reference, a healthy BMI for both men and women is between 18.5 and 24.9.  
+- Those deficient in exercise tend to be older than those that are not. 
+- Those with sufficient exercise consume more calories as well as more of each of the below listed nutrients than do those with exercise deficiency.
+
+Conclusions:
+
+- For those not recommended to exercise more, the average BMI is above the upper healthy threshold.  
+  - Some individuals may not be receiving exercise advice, despite being overweight, however, this may be explained by other health constraints that prevent them from being able to exercise.  
+- Based on their higher caloric intakes, individuals that exercise may not doing so in a way that is focused on weight loss, but rather focused on building muscle mass.  
+
+```{r}
+getTtest(colname="exercise_deficient", cat_labels=c("deficient", "not deficient"))
+```
+
+### Final Thoughts
+Consumption of animal products, which are higher in saturated fats, may promote higher BMI. Higher BMI is linked to diseases such as diabetes and congestive heart failure. Caffeine consumption may also be linked to health issues such as diabetes, coronary heart disease, heart attacks, and strokes. Whether BMI and caffeine are the cause of, result of, or simply chance correlations of these health conditions, however, is unclear and warrants further investivation. Limiting caloric intake and increasing physical activity are important measures that can be taken to maintain healthy BMI and are especially important to moderate and enforce as individuals advance in their years.  
