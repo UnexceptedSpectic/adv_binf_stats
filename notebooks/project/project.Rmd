@@ -1,14 +1,14 @@
 ---
-title: "NHANES Project"
+title: "Demographics, Nutrition, and Health in the United States"
 output:
   html_document:
     df_print: paged
 ---
 
-#### Analysis of CDC's 2017-2018 National Health and Nutrition Examination Survey (NHANES)
-
 ### Introduction
-Nutrition is a major factor contributing to health and longevity. While the dietary quality of Americans is still poor, it has improved over the years, resulting in substantial decreases to the nation's disease burden [[source](https://www.healthaffairs.org/doi/full/10.1377/hlthaff.2015.0640)]. How this improvement expands across the different groups within the population has not been consistent, and this analysis aims to examine the most recent national nutrition data to determine the relationships between nutrition, health, and demographics. The CDC's National Health and Nutrition Examination Survey for the year of 2017-2018 was used for this purpose. 
+Proper nutrition is a major factor contributing to human health and longevity. While the dietary quality of most Americans is still poor, it has improved over the years, resulting in substantial decreases to the nation's disease burden [[1](https://www.healthaffairs.org/doi/full/10.1377/hlthaff.2015.0640)]. How this improvement expands across the different groups within the population has not been consistent, and this analysis aims to examine the most recent national nutrition data to determine the relationships between nutrition, health, and demographics. The CDC's National Health and Nutrition Examination Survey for the year of 2017-2018 was used for this purpose. 
+
+This analysis established that lower BMI among non-Hispanic Asians may be explained by this group's lower sugar intake, when compared to non-Hispanic Blacks, Mexican Americans, and non-Hispanic Whites and that non-Hispanic Blacks may be more sensitive to the weight-impacting effects of sugar consumption. Furthermore, elevated BMI was shown to be associated with type 2 diabetes and congestive heart failure, which suggests that non-Hispanic Blacks may be at a higher risk for these diseases. Caffeine consumption was found to be elevated among individuals suffering from type 2 diabetes, coronary heart disease, heart attacks, and strokes, however, it is unclear whether the potential negatives of caffeine consumption outweigh its benefits, which are outlined in the discussion. 
 
 ```{r "setup", include=FALSE}
 # Set location of Rmd as root dir
@@ -19,33 +19,37 @@ library(rstatix)
 library(ggpubr)
 ```
 
-
 ### Methods
-ANOVAs were cross-performed between categorical demographic and health data and continuous nutrition data to identify variables that are categorically different with respect to their continuous counterparts. Pairwise t-tests were then performed on each of these variables to determine exactly which categories differed between each other in their means. Below is the detailed procedure outlining the steps taken to generate results. 
 
-Read transformed data subset from disk, and view a random sample of its contents. The complete raw data may be accessed [here](https://wwwn.cdc.gov/nchs/nhanes/continuousnhanes/default.aspx?BeginYear=2017). Key demographic, health, and nutrition metrics were extracted and combined into a single table, using `./data/etl.sql`. The complete database used may be reconstructed using `./data/db_dump.sql`. Apart from the `id` column, the values in each row represent either demographic/health categorical factors or continuous values representing total daily nutrient intakes for an individual participating in the survey.    
-```{r}
+#### Data
+
+The data used in this analysis was obtained from the *Demographic*, *Total Nutrient Intake*, *Body Measures*, *Diabetes* (type 2), and *Medical Conditions* datasets of the CDC's 2017-2018 National Health and Nutrition Examination Survey (NHANES). Each of these documents as well as their corresponding documentation, which describes the attribute units and categorical mappings, may be found [here](https://wwwn.cdc.gov/nchs/nhanes/continuousnhanes/default.aspx?BeginYear=2017). The data files were imported into a MYSQL database, transformed according to the script available [here](https://github.com/UnexceptedSpectic/adv_binf_stats/blob/main/notebooks/project/data/etl.sql). Key demographic, health, and nutrition metrics were extracted and combined into a single table to facilitate statistical analysis. This combined table was exported as a *csv*, contains 15,656 records, and is available [here](https://github.com/UnexceptedSpectic/adv_binf_stats/blob/main/notebooks/project/data/nhanes-survey_2017-2018.csv). Apart from the `id` column, the values in each row represent either demographic/health categorical factors or continuous values representing total daily nutrient intakes (in grams, apart from `total_kcal`, which is in kilocalories) for an individual participating in the survey. The database containing the raw and combined data may be recreated by using [this](https://github.com/UnexceptedSpectic/adv_binf_stats/blob/main/notebooks/project/data/db_dump.sql) SQL dump file. 
+
+```{r include=FALSE}
 hanes <- read.csv("data/nhanes-survey_2017-2018.csv", header=TRUE)
 hanes[sample(1:dim(hanes)[1], 10),]
 ```
 
-<br>
+#### Statistical Models
+R was used to perform ANOVAs between each categorical (demographic and health) variable and each continuous (nutrition data) variable to identify variables that are categorically different with respect to their continuous counterparts. Pairwise t-tests were then performed on each of these variables to determine exactly which categories differed between each other in their means. For both tests, Bonferroni correction was used to adjust the resulting p-values. All data and additional protocol details are available [here](https://github.com/UnexceptedSpectic/adv_binf_stats/tree/main/notebooks/project). 
 
-Remove pregnant individuals from consideration, to prevent confounding effects.
-```{r}
-# 1 indicates pregnant
+```{r include=FALSE}
+# Remove pregnant individuals from consideration, to prevent confounding effects. 1 indicates pregnant
+
 hanes <- hanes[(hanes$pregnant != 1),]
 ```
 
-Define data columns as those having less than 10 unique values - an arbitrary, but manually verified cutoff value. 
-```{r}
+```{r include=FALSE}
+# Define data columns as those having less than 10 unique values - an arbitrary, but manually verified cutoff value.
+
 category_logical <- lapply(hanes, function(x) length(unique(x)) < 10)
 categorical_columns <- (1:length(hanes))[unlist(category_logical)]
 continuous_columns <- (1:length(hanes))[!unlist(category_logical)]
 ```
 
-Perform one-way ANOVAs between each categorical variable and each continuous variable, to determine which comparisons suggest significant categorical differences. Save the p-values and a textual record of the comparisons made.  
-```{r}
+```{r include=FALSE}
+# Perform one-way ANOVAs between each categorical variable and each continuous variable, to determine which comparisons suggest significant categorical differences. Save the p-values and a textual record of the comparisons made.  
+
 anova_pvalues <- vector()
 comparison_columns <- list()
 
@@ -72,14 +76,16 @@ head(anova_pvalues)
 head(comparison_columns, 1)
 ```
 
-Identify and count the comparisons that suggest categorical differences.
-```{r}
+```{r include=FALSE}
+# Identify and count the comparisons that suggest categorical differences.
+
 significant_comparisons <- p.adjust(anova_pvalues, "bonferroni") < 0.05
 sum(significant_comparisons)
 ```
 
-Define a function for obtaining continuous variable means, grouped by categorical factors. 
-```{r}
+```{r include=FALSE}
+# Define a function for obtaining continuous variable means, grouped by categorical factors. 
+
 getTtestGroupMeans <- function(test, group, cont_col, cat_col) {
   means <- vector()
   groups <- vector()
@@ -98,9 +104,10 @@ getTtestGroupMeans <- function(test, group, cont_col, cat_col) {
 }
 ```
 
-Define a function for executing pairwise t-tests between each continuous and categorical variable.
-```{r}
+```{r include=FALSE}
+# Define a function for executing pairwise t-tests between each continuous and categorical variable.
 # Rows whose continuous variable has a zero value are filtered out.
+
 pw_ttest <- function(comp_col_pair, cat_col, cont_col) {
   data = tibble(cat = factor(cat_col[cont_col!=0]), cont = cont_col[cont_col!=0])
   stat.test <- data %>%
@@ -118,8 +125,9 @@ pw_ttest <- function(comp_col_pair, cat_col, cont_col) {
 }
 ```
 
-Perform pairwise t-tests between each category for variables found to have significant categorical differences. 
-```{r}
+```{r include=FALSE}
+# Perform pairwise t-tests between each category for variables found to have significant categorical differences. 
+
 t_tests <- NULL
 for (comp_col_pair in comparison_columns[significant_comparisons]) {
   t_test <- pw_ttest(comp_col_pair=comp_col_pair,cat_col=hanes[,comp_col_pair[1]], cont_col=hanes[,comp_col_pair[2]])
@@ -127,8 +135,9 @@ for (comp_col_pair in comparison_columns[significant_comparisons]) {
 }
 ```
 
-The below output shows the comparisons that showed the greatest differences. 
-```{r}
+```{r include=FALSE}
+#Isolate comparisons showing significant differences. 
+
 sig_t_tests <- t_tests[t_tests$p.adj < 0.05,]
 sig_t_tests <- sig_t_tests[order(sig_t_tests$p.adj),]
 # Groups with 0 values represent missing information - questions unanswered by participants 
@@ -140,157 +149,89 @@ sig_t_tests <- tibble(
   cont_ind=sig_t_tests$cont_ind,
   group1=sig_t_tests$group1, 
   group2=sig_t_tests$group2, 
-  x1=sig_t_tests$x1, 
-  x2=sig_t_tests$x2, 
-  p.adj=sig_t_tests$p.adj,
-  n1=sig_t_tests$n1,
-  n2=sig_t_tests$n2)
+  group1.mean=sig_t_tests$x1, 
+  group2.mean=sig_t_tests$x2, 
+  group1.size=sig_t_tests$n1,
+  group2.size=sig_t_tests$n2,
+  pval.adj=sig_t_tests$p.adj)
 head(sig_t_tests)
 dim(sig_t_tests)
 ```
 
 ### Results and Conclusions
 
-Shown below are the results that I found to be most interesting.
+```{r include=FALSE}
+# Define helper functions for subsetting and annotating t-tests.
 
-Define helper functions for subsetting and annotating t-tests.
-```{r}
 hanesColInd <- function(colName) {
   return((1:length(hanes))[colnames(hanes) == colName])
 }
-```
 
-```{r}
 getTtest <- function(colname, cat_labels) {
   res <- sig_t_tests[(sig_t_tests$cat_ind==hanesColInd(colname)),]
   res$group1 <- cat_labels[as.numeric(res$group1)]
   res$group2 <- cat_labels[as.numeric(res$group2)]
+  res <- cbind(res[,1], res[,(4:length(res))])
   return(res)
 }
 ```
 
-<br>
+#### Dietary and health trends by race
+Dietary and health metric disparities across race were screened for and Table 1 shows a set of significant findings and their associated p-values. We show that non-Hispanic Asians tend to have lower BMI than non-Hispanic Blacks, Mexican Americans, and non-Hispanic Whites. This may be explained by our analogous finding that non-Hispanic Asians tend to consume less sugar than non-Hispanic Blacks, Mexican Americans, and non-Hispanic Whites. 
 
-#### Race
-Findings: 
+Furthermore, non-Hispanic Blacks were shown to have higher BMI than non-Hispanic Whites. The only difference in nutritional intake between non-Hispanic Blacks and other racial groups was the finding that non-Hispanic Whites tend to consume more sugar than do non-Hispanic Blacks and Mexican Americans.
 
-- Non-Hispanic Asians tend to have lower BMI than Non-Hispanic Blacks, Mexican Americans, and Non-Hispanic Whites.  
-- Non-Hispanic Blacks tend to have higher BMI than do Non-Hispanic Whites or 'Other Hispanics'. 
-- Non-Hispanic Asians tend to consume less sugar than Non-Hispanic Blacks, Mexican Americans, and Non-Hispanic Whites.  
-- Non-Hispanic Whites tend to consume more sugar than do Non-Hispanic Blacks, Mexican Americans, and 'Other Hispanics'.  
-- Mexican Americans consume more cholesterol than Non-Hispanic Whites and Non-Hispanic Asians.
-
-Conclusions:
-
-- The consumption of diets higher in sugar among Non-Hispanic whites may be linked to their lower BMI when compared to Non-Hispanic Blacks, although the reasons as to why are unclear.   
-- The greater consumption of cholesterol among Mexican Americans may explain their higher BMI when compared to Non-Hispanic Asians.  
-
-```{r}
-getTtest(colname="race", cat_labels=c("Mexican American", "Other Hispanic", "Non-Hispanic White", "Non-Hispanic Black", "", "Non-Hispanic Asian", "Other"))
+**Table 1 | Comparisons of BMI and sugar intake across racial categories.** The categorical and continuous variables used in a particular pairwise t-test are described in the `comparison` column. The specific racial groups compared are detailed in the columns `group1` and `group2`, and each group's mean and sample size is detailed in the `groupX.mean` and `groupX.size` columns. BMI is given in (weight (kg)/height (m)<sup>2</sup>) and sugar intake is given in grams/day. The Bonferroni adjusted p-values associated with each t-test are shown in the the `pval.adj` column. All shown results are significant at p < 0.05.
+```{r echo=FALSE}
+race_table <- getTtest(colname="race", cat_labels=c("Mexican American", "Other Hispanic", "non-Hispanic White", "non-Hispanic Black", "", "non-Hispanic Asian", "Other"))
+race_table <- race_table[((race_table$group2 != "Other") & (race_table$group1 !="Other Hispanic")),]
+race_table <- race_table[grep("bmi$|sugar$", race_table$comparison),]
+remove_rownames(race_table[order(race_table$comparison),])
 ```
 
 <br>
 
-#### Diabetes  
-Findings:
-
-- Those without diabetes have a lower BMI than both diabetics and those that are borderline.  
-- Those with diabetes consume less sugar, carbs, and calories overall than those without it.   
-- Diabetics consume more caffeine than those without diabetes.
-
-Conclusions:
-
-- Overweight individuals may be more susceptible to diabetes.  
-- Diabetics may be limiting their sugar and carbs to better manage their blood glucose and may be trying to lose weight.  
-- Diabetics may rely on caffeine to manage drowsiness.  
-
-```{r}
-getTtest(colname="diabetes", cat_labels=c("diabetic", "non diabetic", "borderline"))
+```{r include=FALSE}
+perc_diff <- function(f, i) {return(round((f-i)/i*100, 0))}
 ```
 
-<br>
 
-#### Congestive Heart Failure
-Findings:
+#### Diseases Linked to High BMI and Elevated Caffeine Intake
+BMI and caffeine intake were compared across disease status and the results, as well as their their associated p-values, are shown in Table 2. We found that individuals suffering from type 2 diabetes tend to have higher BMI than do those that don't have the disease. Likewise, individuals with congestive heart failure tend to have higher BMI than do individuals healthy in this respect. 
 
-- Those diagnosed with congestive heart failure tend to have higher BMI than those that aren't or 'don't know'.  
-- Those not diagnosed with congestive heart failure tend to eat more fiber, protein, carbs, sodium, and calories in general.
+We also found that those suffering from type 2 diabetes, coronary heart disease, heart attacks, and strokes all consume higher levels of caffeine than do individuals without these diseases. The amounts by which caffeine consumption in diseased individuals exceeds that of healthy individuals are `r perc_diff(157.11, 126.08)`%, `r perc_diff(195.62, 164.62)`%, `r perc_diff(244.32, 161.81)`%, and `r perc_diff(208.73, 163.97)`%, respectively.
 
-Conclusions:
+**Table 2 | Comparisons of BMI and caffeine intake across disease status.** The categorical variables representing diseases (type 2 diabetes, coronary heart disease, heart attack, stroke) and continuous variables (BMI and caffeine) used in a particular pairwise t-test are described in the `comparison` column. The disease status of the groups compared is detailed in the columns `group1` and `group2`, and each group's mean and sample size is detailed in the `groupX.mean` and `groupX.size` columns. BMI is given in (weight (kg)/height (m)<sup>2</sup>) and caffeine intake is given in grams/day. The Bonferroni adjusted p-value associated with each t-test is shown in the the `pval.adj` column. All shown results are significant at p < 0.05.
+```{r echo=FALSE}
+diabetes_table <- getTtest(colname="diabetes", cat_labels=c("diseased", "healthy", "borderline"))
+chf_table <- getTtest(colname="cong_heart_failure", cat_labels=c("diseased", "healthy", rep("", 6), "Don't Know"))
+chd_table <- getTtest(colname="cor_heart_disease", cat_labels=c("diseased", "healthy", rep("", 6), "Don't Know"))
+ha_table <- getTtest(colname="had_heart_attack", cat_labels=c("diseased", "healthy", rep("", 6), "Don't Know"))
+stroke_table <- getTtest(colname="had_stroke", cat_labels=c("diseased", "healthy"))
 
-- Those without congestive heart failure consume proportionally less fat in their diets.
-- Those without congestive heart failure intake more calories, but have lower BMIs suggesting that they may be more active. 
+combined_table <- rbind(
+  diabetes_table[grep("bmi$|caffeine$", diabetes_table$comparison),],
+  chf_table[grep("bmi$|caffeine$", chf_table$comparison),],
+  chd_table[grep("bmi$|caffeine$", chd_table$comparison),],
+  ha_table[grep("bmi$|caffeine$", ha_table$comparison),],
+  stroke_table[grep("bmi$|caffeine$", stroke_table$comparison),]
+)
 
-```{r}
-getTtest(colname="cong_heart_failure", cat_labels=c("Yes", "No", rep("", 6), "Don't Know"))
+combined_table <- combined_table[((combined_table$group2 != "borderline") & (combined_table$group2 != "Don't Know")),]
+remove_rownames(combined_table[order(unlist(lapply(combined_table$comparison, function(x) strsplit(x, 'vs')[[1]][2]))),])
 ```
 
-<br>
+### Discussion
+While the results showcased above are all significant (p<0.05), it is not necessarily so that one compared variable, for instance a nutrition metric like sugar intake, is directly responsible for a categorical outcome, such as type 2 diabetes. The categorical outcome may have been present prior to the observation of the nutrition value. Therefore, the below discussion is only that of the possible relationships that could exist between the compared variables outlined in the result section. Inferences are supported with existing literature, however, more detailed studies may have to be designed to confirm them. 
 
-#### Coronary heart disease
-Findings:
+#### Dietary and health trends by race
 
-- Those diagnosed with coronary heart disease tend to consume more caffeine, less calories - primarily through a reduction in protein intake - and less sodium than do those not diagnosed with the disease.
+The first interesting insight is that non-Hispanic Asians may have lower BMI than do non-Hispanic Blacks, Mexican Americans, and non-Hispanic Whites due to their lower intake of sugar, all other studied nutrient metrics being equal. One of the best studied risk factors of higher BMI is the consumption of sugar-sweetened beverages [[2](https://academic.oup.com/ajcn/article/84/2/274/4881805?login=true)], and non-Hispanic Asian youths have been shown to consume less sugar-sweetened beverages than do non-Hispanic white, non-Hispanic black, and Hispanic youths [[3](https://stacks.cdc.gov/view/cdc/44039)]. The reason for this observation is not entirely clear and may result from some combination of both genetic predispositions and socioeconomic factors. 
 
-Conclusions:
+Secondly, non-Hispanic Blacks tend to have higher BMI when compared to non-Hispanic whites despite consuming less sugar, all other studied metrics being equal. This suggests that non-Hispanic Blacks may be more sensitive to the effects of sugar, than are non-Hispanic whites. One study showed that obese African American women are more sensitive to glucose in their insulin response than are obese White American women [[4](https://pubmed.ncbi.nlm.nih.gov/28629856/)]. This, coupled with the facts that obesity is linked to low socioeconomic status [[5](https://www.liebertpub.com/doi/abs/10.1089/chi.2015.0029)] and that racial minorities are more likely to occupy lower socioeconomic strata [[6](https://www.bls.gov/spotlight/2018/race-economics-and-social-status/pdf/race-economics-and-social-status.pdf)], suggest that our observation may be reasonably qualified. 
 
-- Those diagnosed with coronary heart disease may lack sufficient protein content in their diets.
-- Those diagnosed with coronary heart disease may consume caffeine amounts that are too high to be healthy.
+#### Diseases Linked to High BMI and Elevated Caffeine Intake
 
-```{r}
-getTtest(colname="cor_heart_disease", cat_labels=c("Yes", "No", rep("", 6), "Don't Know"))
-```
+Two diseases were found to be associated with higher BMI when compared to respective non-diseased group BMI: type 2 diabetes and congestive heart failure. Given that the majority of individuals diagnosed with type 2 diabetes are overweight or obese [[7](https://pubmed.ncbi.nlm.nih.gov/17889292/)] and that intentional weight loss among individuals with type 2 diabetes reduces mortality [[8](https://care.diabetesjournals.org/content/23/10/1499.short)], it is likely that higher-than-healthy BMI is a risk factor for the development of type 2 diabetes. Similarly, research has shown that obese individuals have nearly twice the risk of developing congestive heart failure as do those with healthy weight [[9](https://www.nejm.org/doi/full/10.1056/NEJMoa020245)] and those suffering from congestive heart failure reap similar benefits by losing weight as do overweight individuals without the disease [[10](https://pubmed.ncbi.nlm.nih.gov/9315579/)]. 
 
-<br>
-
-#### Heart Attack
-Findings:
-
-- Individuals who have had a heart attack at least once consume ~50% more caffeine than those who haven't ever had a heart attack. 
-
-Conclusions:
-- Higher caffeine consumption may increase the likelihood of heart attack incidence. 
-
-
-```{r}
-getTtest(colname="had_heart_attack", cat_labels=c("Yes", "No", rep("", 6), "Don't Know"))
-```
-
-<br>
-
-#### Stroke
-Findings:
-
-- Individuals who have had a stroke at least once tend to consume less calories, which results from a decrease in intake across all the nutrient categories listed in the table below, except for caffeine.
-- Individuals who have had a stroke at least once consume ~27% more caffeine than those who have not.
-
-Conclusions:
-
-- Higher caffeine consumption, especially at the expense of alternative nutrient intake, may increase the risk of stroke.  
-
-```{r}
-getTtest(colname="had_stroke", cat_labels=c("Yes", "No"))
-```
-
-<br>
-
-#### Exercise deficiency  
-Findings:
-
-- Those told by their doctors to exercise more had a higher BMI than those who weren't.  
-  - For reference, a healthy BMI for both men and women is between 18.5 and 24.9.  
-- Those deficient in exercise tend to be older than those that are not. 
-- Those with sufficient exercise consume more calories as well as more of each of the below listed nutrients than do those with exercise deficiency.
-
-Conclusions:
-
-- For those not recommended to exercise more, the average BMI is above the upper healthy threshold.  
-  - Some individuals may not be receiving exercise advice, despite being overweight, however, this may be explained by other health constraints that prevent them from being able to exercise.  
-- Based on their higher caloric intakes, individuals that exercise may not doing so in a way that is focused on weight loss, but rather focused on building muscle mass.  
-
-```{r}
-getTtest(colname="exercise_deficient", cat_labels=c("deficient", "not deficient"))
-```
-
-### Final Thoughts
-Consumption of animal products, which are higher in saturated fats, may promote higher BMI. Higher BMI is linked to diseases such as diabetes and congestive heart failure. Caffeine consumption may also be linked to health issues such as diabetes, coronary heart disease, heart attacks, and strokes. Whether BMI and caffeine are the cause of, result of, or simply chance correlations of these health conditions, however, is unclear and warrants further investivation. Limiting caloric intake and increasing physical activity are important measures that can be taken to maintain healthy BMI and are especially important to moderate and enforce as individuals advance in their years.  
+Furthermore, we found that elevated caffeine intake may be associated with type 2 diabetes, coronary heart disease, heart attacks, and strokes. Caffeine consumption has been shown to impair glucose tolerance in men[[11](https://www.sciencedirect.com/science/article/abs/pii/S0140673667903340)] and to decrease insulin sensitivity in young adults [[12](https://care.diabetesjournals.org/content/27/8/2047.short)]. Although the latest research suggests there is no increase in risk of coronary heart disease or stroke with caffeine consumption, conflicting results exist regarding the relationship between caffeine consumption and myocardial infarction [[13](https://www.nejm.org/doi/full/10.1056/NEJM199010113231504)]. While some research suggests that caffeine may be beneficial toward reducing the risk of Alzheimer's disease [[14](https://pubmed.ncbi.nlm.nih.gov/20182037/)] and Parkinson disease [[15](https://pubmed.ncbi.nlm.nih.gov/10819950/)], it may still benefit individuals to consume it in moderation. 
